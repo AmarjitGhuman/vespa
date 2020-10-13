@@ -67,9 +67,7 @@ import com.yahoo.vespa.curator.Lock;
 import com.yahoo.vespa.curator.stats.LockStats;
 import com.yahoo.vespa.curator.stats.ThreadLockStats;
 import com.yahoo.vespa.defaults.Defaults;
-import com.yahoo.vespa.flags.BooleanFlag;
 import com.yahoo.vespa.flags.FlagSource;
-import com.yahoo.vespa.flags.Flags;
 import com.yahoo.vespa.flags.InMemoryFlagSource;
 import com.yahoo.vespa.orchestrator.Orchestrator;
 
@@ -131,7 +129,6 @@ public class ApplicationRepository implements com.yahoo.config.provision.Deploye
     private final LogRetriever logRetriever;
     private final TesterClient testerClient;
     private final Metric metric;
-    private final BooleanFlag acquireProvisionLock;
 
     @Inject
     public ApplicationRepository(TenantRepository tenantRepository,
@@ -181,7 +178,6 @@ public class ApplicationRepository implements com.yahoo.config.provision.Deploye
         this.clock = Objects.requireNonNull(clock);
         this.testerClient = Objects.requireNonNull(testerClient);
         this.metric = Objects.requireNonNull(metric);
-        this.acquireProvisionLock = Flags.ALWAYS_ACQUIRE_PROVISION_LOCK.bindTo(flagSource);
     }
 
     public static class Builder {
@@ -504,13 +500,9 @@ public class ApplicationRepository implements com.yahoo.config.provision.Deploye
             transaction.onCommitted(() -> log.log(Level.INFO, "Deleted " + applicationId));
 
             if (hostProvisioner.isPresent()) {
-                if (acquireProvisionLock.value()) {
-                    try (var provisionLock = hostProvisioner.get().lock(applicationId)) {
-                        hostProvisioner.get().remove(transaction, provisionLock);
-                        transaction.commit();
-                    }
-                } else { // TODO(mpolden): Remove when feature flag is removed
-                    hostProvisioner.get().remove(transaction, applicationId);
+                // Commit while holding lock
+                try (var provisionLock = hostProvisioner.get().lock(applicationId)) {
+                    hostProvisioner.get().remove(transaction, provisionLock);
                     transaction.commit();
                 }
             } else {
@@ -732,15 +724,11 @@ public class ApplicationRepository implements com.yahoo.config.provision.Deploye
         NestedTransaction transaction = new NestedTransaction();
         transaction.add(deactivateCurrentActivateNew(previousActiveSession, session, force));
         if (hostProvisioner.isPresent()) {
-           if (acquireProvisionLock.value()) {
-               try (var lock = hostProvisioner.get().lock(applicationId)) {
-                   hostProvisioner.get().activate(transaction, session.getAllocatedHosts().getHosts(), lock);
-                   transaction.commit();
-               }
-           } else { // TODO(mpolden): Remove when feature flag is removed
-               hostProvisioner.get().activate(transaction, applicationId, session.getAllocatedHosts().getHosts());
-               transaction.commit();
-           }
+            // Commit while holding lock
+            try (var lock = hostProvisioner.get().lock(applicationId)) {
+                hostProvisioner.get().activate(transaction, session.getAllocatedHosts().getHosts(), lock);
+                transaction.commit();
+            }
         } else {
             transaction.commit();
         }

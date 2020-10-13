@@ -119,14 +119,6 @@ public class NodeRepositoryProvisioner implements Provisioner {
     }
 
     @Override
-    // TODO(mpolden): Remove
-    public void activate(NestedTransaction transaction, ApplicationId application, Collection<HostSpec> hosts) {
-        try (var lock = lock(application)) {
-            activate(transaction, hosts, lock);
-        }
-    }
-
-    @Override
     public void activate(NestedTransaction transaction, Collection<HostSpec> hosts, ProvisionLock lock) {
         validate(hosts);
         activator.activate(hosts, transaction, lock);
@@ -135,14 +127,6 @@ public class NodeRepositoryProvisioner implements Provisioner {
     @Override
     public void restart(ApplicationId application, HostFilter filter) {
         nodeRepository.restart(ApplicationFilter.from(application, NodeHostFilter.from(filter)));
-    }
-
-    @Override
-    // TODO(mpolden): Remove
-    public void remove(NestedTransaction transaction, ApplicationId application) {
-        try (var lock = lock(application)) {
-            remove(transaction, lock);
-        }
     }
 
     @Override

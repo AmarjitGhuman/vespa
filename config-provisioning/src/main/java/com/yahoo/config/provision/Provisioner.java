@@ -28,29 +28,10 @@ public interface Provisioner {
      * Activates the allocation of nodes to this application captured in the hosts argument.
      *
      * @param transaction Transaction with operations to commit together with any operations done within the provisioner.
-     * @param application The {@link ApplicationId} that was activated.
-     * @param hosts a set of {@link HostSpec}.
-     */
-    // TODO(mpolden): Remove
-    void activate(NestedTransaction transaction, ApplicationId application, Collection<HostSpec> hosts);
-
-    /**
-     * Activates the allocation of nodes to this application captured in the hosts argument.
-     *
-     * @param transaction Transaction with operations to commit together with any operations done within the provisioner.
      * @param hosts       a set of {@link HostSpec}.
      * @param lock        A provision lock for the relevant application. This must be held when calling this.
      */
     void activate(NestedTransaction transaction, Collection<HostSpec> hosts, ProvisionLock lock);
-
-    /**
-     * Transactionally remove this application.
-     *
-     * @param transaction Transaction with operations to commit together with any operations done within the provisioner.
-     * @param application the application to remove
-     */
-    // TODO(mpolden): Remove
-    void remove(NestedTransaction transaction, ApplicationId application);
 
     /**
      * Transactionally remove application guarded by given lock.

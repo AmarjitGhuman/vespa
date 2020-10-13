@@ -25,17 +25,7 @@ public class MockProvisioner implements Provisioner {
     }
 
     @Override
-    public void activate(NestedTransaction transaction, ApplicationId application, Collection<HostSpec> hosts) {
-
-    }
-
-    @Override
     public void activate(NestedTransaction transaction, Collection<HostSpec> hosts, ProvisionLock lock) {
-
-    }
-
-    @Override
-    public void remove(NestedTransaction transaction, ApplicationId application) {
 
     }
 
