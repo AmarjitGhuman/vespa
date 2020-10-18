@@ -74,14 +74,21 @@ const WrappedSimpleValue &to_simple(const Value &value, Stash &stash) {
 
 // map tensors to default tensors after fall-back evaluation
 
-const Value &to_default(const Value &value, Stash &) {
+const Value &to_default(const Value &value, Stash &stash) {
     if (auto tensor = dynamic_cast<const tensor::Tensor *>(value.as_tensor())) {
-        bool should_be_wrapped = !tensor::Tensor::supported({value.type()});
-        bool is_wrapped = dynamic_cast<const WrappedSimpleValue *>(tensor);
-        assert(should_be_wrapped == is_wrapped);
         assert(&tensor->engine() == &default_engine());
         bool wrong_wrapped = dynamic_cast<const WrappedSimpleTensor *>(tensor);
         assert(!wrong_wrapped);
+        bool should_be_wrapped = !tensor::Tensor::supported({value.type()});
+        auto wrapped = dynamic_cast<const WrappedSimpleValue *>(tensor);
+        if (should_be_wrapped && ! wrapped) {
+            return stash.create<WrappedSimpleValue>(value);
+        }
+        if (wrapped && !should_be_wrapped) {
+            fprintf(stderr, "to_default() problem: type '%s' should not be wrapped\n",
+                    value.type().to_spec().c_str());
+            return wrapped->unwrap();
+        }
         return value;
     }
     if (dynamic_cast<const DoubleValue *>(&value)) {
@@ -91,6 +98,9 @@ const Value &to_default(const Value &value, Stash &) {
 }
 
 const Value &to_default(Value::UP value, Stash &stash) {
+    if (value->type().is_double()) {
+        return stash.create<DoubleValue>(value->as_double());
+    }
     const auto &store_ref = stash.create<Value::UP>(std::move(value));
     return to_default(*store_ref, stash);
 }
