@@ -3,6 +3,7 @@
 #include "default_tensor_engine.h"
 #include "tensor.h"
 #include "wrapped_simple_tensor.h"
+#include "wrapped_simple_value.h"
 #include "serialization/typed_binary_format.h"
 #include "sparse/sparse_tensor_address_builder.h"
 #include "sparse/direct_sparse_tensor_builder.h"
@@ -27,9 +28,9 @@
 #include "dense/dense_tensor_create_function.h"
 #include "dense/dense_tensor_peek_function.h"
 #include <vespa/eval/eval/value.h>
+#include <vespa/eval/eval/value_codec.h>
 #include <vespa/eval/eval/tensor_spec.h>
-#include <vespa/eval/eval/tensor_spec.h>
-#include <vespa/eval/eval/simple_tensor_engine.h>
+#include <vespa/eval/eval/simple_value.h>
 #include <vespa/eval/eval/operation.h>
 #include <vespa/vespalib/objects/nbostream.h>
 #include <vespa/vespalib/util/exceptions.h>
@@ -58,37 +59,40 @@ namespace {
 
 constexpr size_t UNDEFINED_IDX = std::numeric_limits<size_t>::max();
 
-const eval::TensorEngine &simple_engine() { return eval::SimpleTensorEngine::ref(); }
 const eval::TensorEngine &default_engine() { return DefaultTensorEngine::ref(); }
 
 // map tensors to simple tensors before fall-back evaluation
 
-const Value &to_simple(const Value &value, Stash &stash) {
+const WrappedSimpleValue &to_simple(const Value &value, Stash &stash) {
     if (auto tensor = value.as_tensor()) {
-        if (auto wrapped = dynamic_cast<const WrappedSimpleTensor *>(tensor)) {
-            return wrapped->get();
+        if (auto wrapped = dynamic_cast<const WrappedSimpleValue *>(tensor)) {
+            return *wrapped;
         }
-        nbostream data;
-        tensor->engine().encode(*tensor, data);
-        return *stash.create<Value::UP>(eval::SimpleTensor::decode(data));
     }
-    return value;
+    return stash.create<WrappedSimpleValue>(value);
 }
 
 // map tensors to default tensors after fall-back evaluation
 
-const Value &to_default(const Value &value, Stash &stash) {
-    if (auto tensor = value.as_tensor()) {
-        if (auto simple = dynamic_cast<const eval::SimpleTensor *>(tensor)) {
-            if (!Tensor::supported({simple->type()})) {
-                return stash.create<WrappedSimpleTensor>(*simple);
-            }
-        }
-        nbostream data;
-        tensor->engine().encode(*tensor, data);
-        return *stash.create<Value::UP>(default_engine().decode(data));
+const Value &to_default(const Value &value, Stash &) {
+    if (auto tensor = dynamic_cast<const tensor::Tensor *>(value.as_tensor())) {
+        bool should_be_wrapped = !tensor::Tensor::supported({value.type()});
+        bool is_wrapped = dynamic_cast<const WrappedSimpleValue *>(tensor);
+        assert(should_be_wrapped == is_wrapped);
+        assert(&tensor->engine() == &default_engine());
+        bool wrong_wrapped = dynamic_cast<const WrappedSimpleTensor *>(tensor);
+        assert(!wrong_wrapped);
+        return value;
     }
-    return value;
+    if (dynamic_cast<const DoubleValue *>(&value)) {
+        return value;
+    }
+    abort();
+}
+
+const Value &to_default(Value::UP value, Stash &stash) {
+    const auto &store_ref = stash.create<Value::UP>(std::move(value));
+    return to_default(*store_ref, stash);
 }
 
 const Value &to_value(std::unique_ptr<Tensor> tensor, Stash &stash) {
@@ -107,15 +111,15 @@ Value::UP to_value(std::unique_ptr<Tensor> tensor) {
 }
 
 const Value &fallback_join(const Value &a, const Value &b, join_fun_t function, Stash &stash) {
-    return to_default(simple_engine().join(to_simple(a, stash), to_simple(b, stash), function, stash), stash);
+    return to_default(to_simple(a, stash).join(function, to_simple(b, stash)), stash);
 }
 
 const Value &fallback_merge(const Value &a, const Value &b, join_fun_t function, Stash &stash) {
-    return to_default(simple_engine().merge(to_simple(a, stash), to_simple(b, stash), function, stash), stash);
+    return to_default(to_simple(a, stash).merge(function, to_simple(b, stash)), stash);
 }
 
 const Value &fallback_reduce(const Value &a, eval::Aggr aggr, const std::vector<vespalib::string> &dimensions, Stash &stash) {
-    return to_default(simple_engine().reduce(to_simple(a, stash), aggr, dimensions, stash), stash);
+    return to_default(to_simple(a, stash).reduce(aggr, dimensions), stash);
 }
 
 size_t calculate_cell_index(const ValueType &type, const TensorSpec::Address &address) {
@@ -229,7 +233,7 @@ DefaultTensorEngine::from_spec(const TensorSpec &spec) const
     } else if (type.is_sparse()) {
         return typify_invoke<1,MyTypify,CallSparseTensorBuilder>(type.cell_type(), type, spec);
     }
-    return std::make_unique<WrappedSimpleTensor>(eval::SimpleTensor::create(spec));
+    return std::make_unique<WrappedSimpleValue>(eval::value_from_spec(spec, eval::SimpleValueBuilderFactory::get()));
 }
 
 struct CellFunctionFunAdapter : tensor::CellFunction {
@@ -328,10 +332,10 @@ DefaultTensorEngine::map(const Value &a, map_fun_t function, Stash &stash) const
     if (auto tensor = a.as_tensor()) {
         assert(&tensor->engine() == this);
         const tensor::Tensor &my_a = static_cast<const tensor::Tensor &>(*tensor);
-        if (!tensor::Tensor::supported({my_a.type()})) {
-            return to_default(simple_engine().map(to_simple(a, stash), function, stash), stash);
-        }
         CellFunctionFunAdapter cell_function(function);
+        if (!tensor::Tensor::supported({my_a.type()})) {
+            return to_default(to_simple(a, stash).apply(cell_function), stash);
+        }
         return to_value(my_a.apply(cell_function), stash);
     } else {
         return stash.create<DoubleValue>(function(a.as_double()));
@@ -478,13 +482,13 @@ DefaultTensorEngine::concat(const Value &a, const Value &b, const vespalib::stri
         CellType result_cell_type = ValueType::unify_cell_types(a.type(), b.type());
         return typify_invoke<1,MyTypify,CallConcatVectors>(result_cell_type, a, b, dimension, (a_size + b_size), stash);
     }
-    return to_default(simple_engine().concat(to_simple(a, stash), to_simple(b, stash), dimension, stash), stash);
+    return to_default(to_simple(a, stash).concat(to_simple(b, stash), dimension), stash);
 }
 
 const Value &
 DefaultTensorEngine::rename(const Value &a, const std::vector<vespalib::string> &from, const std::vector<vespalib::string> &to, Stash &stash) const
 {
-    return to_default(simple_engine().rename(to_simple(a, stash), from, to, stash), stash);
+    return to_default(to_simple(a, stash).rename(from, to), stash);
 }
 
 //-----------------------------------------------------------------------------
