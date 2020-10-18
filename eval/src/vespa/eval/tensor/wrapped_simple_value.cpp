@@ -214,6 +214,9 @@ WrappedSimpleValue::add(const Tensor &rhs) const
 {
     TensorSpec a = toSpec();
     TensorSpec b = rhs.toSpec();
+    if (a.type() != b.type()) {
+        return {};
+    }
     TensorSpec result(a.type());
     for (const auto &cell: b.cells()) {
         result.add(cell.first, cell.second);
