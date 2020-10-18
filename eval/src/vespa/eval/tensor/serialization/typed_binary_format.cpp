@@ -4,10 +4,13 @@
 #include "sparse_binary_format.h"
 #include "dense_binary_format.h"
 #include <vespa/vespalib/objects/nbostream.h>
-#include <vespa/eval/tensor/tensor.h>
-#include <vespa/eval/tensor/dense/dense_tensor.h>
 #include <vespa/eval/eval/simple_tensor.h>
+#include <vespa/eval/eval/value_codec.h>
+#include <vespa/eval/tensor/default_value_builder_factory.h>
+#include <vespa/eval/tensor/dense/dense_tensor.h>
+#include <vespa/eval/tensor/tensor.h>
 #include <vespa/eval/tensor/wrapped_simple_tensor.h>
+#include <vespa/eval/tensor/wrapped_simple_value.h>
 
 #include <vespa/log/log.h>
 #include <vespa/vespalib/util/stringfmt.h>
@@ -55,16 +58,14 @@ encoding_to_cell_type(uint32_t cell_encoding) {
     }
 }
 
-std::unique_ptr<Tensor>
-wrap_simple_tensor(std::unique_ptr<eval::SimpleTensor> simple)
-{
-    if (Tensor::supported({simple->type()})) {
-        nbostream data;
-        eval::SimpleTensor::encode(*simple, data);
-        // note: some danger of infinite recursion here
-        return TypedBinaryFormat::deserialize(data);
+Tensor::UP maybe_wrap(eval::Value::UP value) {
+    Tensor::UP ret_val;
+    if (auto ptr = dynamic_cast<Tensor *>(value.get())) {
+        ret_val.reset(ptr);
+        value.release();
+        return ret_val;
     }
-    return std::make_unique<WrappedSimpleTensor>(std::move(simple));
+    return std::make_unique<WrappedSimpleValue>(std::move(value));
 }
 
 } // namespace <unnamed>
@@ -82,6 +83,8 @@ TypedBinaryFormat::serialize(nbostream &stream, const Tensor &tensor)
             stream.putInt1_4Bytes(cell_type_to_encoding(cell_type));
         }
         DenseBinaryFormat::serialize(stream, *denseTensor);
+    } else if (dynamic_cast<const WrappedSimpleValue *>(&tensor)) {
+        eval::encode_value(tensor, stream);
     } else if (auto wrapped = dynamic_cast<const WrappedSimpleTensor *>(&tensor)) {
         eval::SimpleTensor::encode(wrapped->get(), stream);
     } else {
@@ -116,7 +119,7 @@ TypedBinaryFormat::deserialize(nbostream &stream)
     case MIXED_BINARY_FORMAT_TYPE:
     case MIXED_BINARY_FORMAT_WITH_CELLTYPE:
         stream.adjustReadPos(read_pos - stream.rp());
-        return wrap_simple_tensor(eval::SimpleTensor::decode(stream));
+        return maybe_wrap(eval::decode_value(stream, DefaultValueBuilderFactory::get()));
     default:
         throw IllegalArgumentException(make_string("Received unknown tensor format type = %du.", formatId));
     }
