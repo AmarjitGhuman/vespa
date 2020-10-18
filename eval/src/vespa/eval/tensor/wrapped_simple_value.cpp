@@ -249,14 +249,14 @@ WrappedSimpleValue::remove(const CellValues &rhs) const
 
 
 Tensor::UP
-WrappedSimpleValue::concat(const Value &b, const vespalib::string &dimension)
+WrappedSimpleValue::concat(const Value &b, const vespalib::string &dimension) const
 {
     auto up = GenericConcat::perform_concat(*this, b, dimension, DefaultValueBuilderFactory::get());
     return maybe_wrap(std::move(up));
 }
 
 Tensor::UP
-WrappedSimpleValue::rename(const std::vector<vespalib::string> &from, const std::vector<vespalib::string> &to)
+WrappedSimpleValue::rename(const std::vector<vespalib::string> &from, const std::vector<vespalib::string> &to) const
 {
     auto up = GenericRename::perform_rename(*this, from, to, DefaultValueBuilderFactory::get());
     return maybe_wrap(std::move(up));
