@@ -4,7 +4,7 @@
 #include <vespa/eval/eval/value_codec.h>
 #include <vespa/eval/eval/tensor_spec.h>
 #include <vespa/eval/tensor/default_value_builder_factory.h>
-#include <vespa/eval/tensor/mixed/packed_mixed_tensor.h>
+#include <vespa/eval/tensor/wrapped_simple_value.h>
 #include <vespa/eval/tensor/sparse/sparse_tensor.h>
 #include <vespa/eval/tensor/dense/dense_tensor.h>
 #include <vespa/vespalib/gtest/gtest.h>
@@ -12,7 +12,6 @@
 using namespace vespalib;
 using namespace vespalib::eval;
 using namespace vespalib::tensor;
-using namespace vespalib::eval::packed_mixed_tensor;
 
 Value::UP v_of(const TensorSpec &spec) {
     return value_from_spec(spec, DefaultValueBuilderFactory::get());
@@ -32,7 +31,7 @@ TEST(DefaultValueBuilderFactoryTest, all_built_value_types_are_correct) {
     EXPECT_TRUE(dynamic_cast<DenseTensorView *>(trivial.get()));
     EXPECT_TRUE(dynamic_cast<DenseTensorView *>(dense.get()));
     EXPECT_TRUE(dynamic_cast<SparseTensor *>(sparse.get()));
-    EXPECT_TRUE(dynamic_cast<PackedMixedTensor *>(mixed.get()));
+    EXPECT_TRUE(dynamic_cast<WrappedSimpleValue *>(mixed.get()));
 
     EXPECT_EQ(dbl->as_double(), 3.0);
     EXPECT_EQ(trivial->cells().typify<double>()[0], 7.0);
