@@ -45,10 +45,12 @@ struct CreateDefaultValueBuilderBase {
         if (type.is_double()) {
             return std::make_unique<DoubleValueBuilder>();
         }
-        if (num_mapped_dims == 0) {
+        if (type.is_dense()) {
+            assert(num_mapped_dims == 0);
             return std::make_unique<DenseTensorValueBuilder<T>>(type, subspace_size);
         }
-        if (subspace_size == 1) {
+        if (type.is_sparse()) {
+            assert(num_mapped_dims == type.dimensions().size());
             return std::make_unique<SparseTensorValueBuilder<T>>(type, num_mapped_dims, expected_subspaces);
         }
         return std::make_unique<WrappedBuilder<T>>(
