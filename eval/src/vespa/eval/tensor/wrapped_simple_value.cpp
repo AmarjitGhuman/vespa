@@ -7,7 +7,6 @@
 #include <vespa/eval/eval/tensor_spec.h>
 #include <vespa/eval/instruction/generic_concat.h>
 #include <vespa/eval/instruction/generic_join.h>
-#include <vespa/eval/instruction/generic_map.h>
 #include <vespa/eval/instruction/generic_merge.h>
 #include <vespa/eval/instruction/generic_reduce.h>
 #include <vespa/eval/instruction/generic_rename.h>
@@ -109,16 +108,10 @@ WrappedSimpleValue::accept(TensorVisitor &visitor) const
     TensorSpec myspec = toSpec();
     TensorAddressBuilder addr;
     for (const auto & cell : myspec.cells()) {
+        auto sparse_addr = sparsify_address(cell.first);
         addr.clear();
-        for (const auto & kv : cell.first) {
-            const auto & dim = kv.first;
-            const auto & label = kv.second;
-            if (label.is_indexed()) {
-                auto val = vespalib::make_string("%zu", label.index);
-                addr.add(dim, val);
-            } else {
-                addr.add(dim, label.name);
-            }
+        for (const auto & dim_and_label : sparse_addr) {
+            addr.add(dim_and_label.first, dim_and_label.second.name);
         }
         visitor.visit(addr.build(), cell.second);
     }
@@ -186,6 +179,7 @@ WrappedSimpleValue::reduce(join_fun_t fun, const std::vector<vespalib::string> &
     if (fun == eval::operation::Min::f) {
         return reduce(eval::Aggr::MIN, dims);
     }
+    // unknown join-expressible reduce operation
     abort();
 }
 
@@ -248,8 +242,6 @@ WrappedSimpleValue::remove(const CellValues &rhs) const
     }
     return maybe_wrap(value_from_spec(result, DefaultValueBuilderFactory::get()));
 }
-
-
 
 Tensor::UP
 WrappedSimpleValue::concat(const Value &b, const vespalib::string &dimension) const
